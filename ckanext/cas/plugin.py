@@ -65,8 +65,18 @@ class CasPlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IAuthenticator)
     plugins.implements(plugins.IConfigurable)
     plugins.implements(plugins.IAuthFunctions)
-    
+    plugins.implements(plugins.IRoutes, inherit = True)
     cas_identify = None
+    
+    def before_map(self, map):
+        map.connect(
+            'cas_unauthorized',
+            '/cas_unauthorized',
+            controller='ckanext.cas.plugin:CasController',
+            action='cas_unauthorized'
+        )
+        return map
+    
     
     def get_auth_functions(self):
         # we need to prevent some actions being authorized.
@@ -83,22 +93,22 @@ class CasPlugin(plugins.SingletonPlugin):
     
     def identify(self):
         log.info('identify')
-        log.debug('identify-debug')
         c = toolkit.c
         environ = toolkit.request.environ
         user = environ.get('REMOTE_USER', '')
         log.info('user %s', user)
-        if not user:
-            user = environ.get("repoze.who.identity", "")
-            log.info("repoze.who.identity: '%s'" % user)
+        #if not user:
+        #    user = environ.get("repoze.who.identity", "")
+        #    log.info("repoze.who.identity: '%s'" % user)
         
-        if user:          
-            identity = environ.get("repoze.who.identity", {})
-            log.info('identity: %s', identity.keys())
-            user_data = identity.get("attributes", {})
-            log.info('user data: %s', user_data)
-            if user_data:
-                self.cas_identify = user_data
+        if user:
+            if not self.cas_identify:          
+                identity = environ.get("repoze.who.identity", {})
+                log.info('identity: %s', identity.keys())
+                user_data = identity.get("attributes", {})
+                log.info('user data: %s', user_data)
+                if user_data:
+                    self.cas_identify = user_data
 
             if not self.cas_identify:
                 log.info("redirect to logged_out")
@@ -128,46 +138,115 @@ class CasPlugin(plugins.SingletonPlugin):
                 context = {'schema' : user_schema, 'ignore_auth': True}
                 user = toolkit.get_action('user_create')(context, data_dict)
                 c.userobj = model.User.get(c.user)
+                
+            roles = self.cas_identify['Roles'][1:-1].split(',')
+            roles = [x.strip() for x in roles]
+            log.info('roles: %s', roles)
+            #handle MOD specific roles
+            if 'ROLE_POVINNA_OSOBA' in roles:
+                org_name = self.cas_identify['Actor.Organization'][1:-1]
+                self.create_organization(org_name)
+            
+            if 'ROLE_MODERATOR' in roles:
+                self.create_group('moderator')
+                
+            if 'ROLE_DATA_CURATOR' in roles:
+                self.create_group('data_curator')
+                
+            if 'ROLE_APP_ADMIN' in roles:
+                self.create_group('app_admin')
+                pass
         
     def login(self):
         log.info('login')
         if not toolkit.c.user:
             # A 401 HTTP Status will cause the login to be triggered
-            return base.abort(401, toolkit._('Login required!'))
+            log.info('login required')
+            return base.abort(401)
+            #return base.abort(401, toolkit._('Login is required!'))
         log.info("redirect to dashboard")
         h.redirect_to(controller='user', action='dashboard')
         
     def logout(self):
         log.info('logout')
-        environ = toolkit.request.environ
-        #subject_id = environ["repoze.who.identity"]['repoze.who.userid']
-        client = environ['repoze.who.plugins']["casauth"]
-        identity = environ['repoze.who.identity']
-        client.forget(environ, identity)
-        delete_cookies()
-        h.redirect_to(controller='user', action='logged_out')
+        if toolkit.c.user:
+            log.info('logout abort')
+            environ = toolkit.request.environ
+            log.info('environ: %s', environ)
+            subject_id = environ["repoze.who.identity"]['repoze.who.userid']
+            client_auth = environ['repoze.who.plugins']["auth_tkt"]
+            log.info('auth tkt methods: %s', dir(client_auth))
+            client_cas = environ['repoze.who.plugins']["casauth"]
+            log.info('cas methods: %s', dir(client_cas))
+            environ['rwpc.logout']='http://192.168.21.27:5000/'
+            #return base.abort(401)
+            #log.info('logout')
+            #environ = toolkit.request.environ
+            #log.info('environ: %s', environ)
+            ##subject_id = environ["repoze.who.identity"]['repoze.who.userid']
+            #client = environ['repoze.who.plugins']["casauth"]
+            #identity = environ['repoze.who.identity']
+            #client.forget(environ, identity)
+            
+            #delete_cookies()
+            #h.redirect_to(controller='user', action='logged_out')
         
     def abort(self, status_code, detail, headers, comment):
         log.info('abort')
-        if (status_code == 401 and toolkit.request.environ['PATH_INFO'] != '/user/login'):
-                c = toolkit.c
-                c.code = 401
-                c.content = toolkit._('You are not authorized to do this')
-                return toolkit.render('error_document_template.html')
+        if (status_code == 401 and (toolkit.request.environ['PATH_INFO'] != '/user/login' or toolkit.request.environ['PATH_INFO'] != '/user/_logout')):
+                h.redirect_to('cas_unauthorized')
         return (status_code, detail, headers, comment)
     
-    def create_organization(self, org_name):
-        org = model.Group.get(org_name)
+    def create_group(self, group_name):
+        group = model.Group.get(group_name.lower())
         context = {'ignore_auth': True}
         site_user = toolkit.get_action('get_site_user')(context, {})
         c = toolkit.c
+        log.info('site user: %s', site_user)
+        if not group:
+            context = {'user': site_user['name']}
+            data_dict = {'name': group_name.lower(),
+                         'title': group_name
+            }
+            group = toolkit.get_action('group_create')(context, data_dict)
+            group = model.Group.get(group_name.lower())
 
+        # check if we are a member of the organization
+        data_dict = {
+            'id': group.id,
+            'type': 'user',
+        }
+        members = toolkit.get_action('member_list')(context, data_dict)
+        members = [member[0] for member in members]
+        if c.userobj.id not in members:
+            # add membership
+            member_dict = {
+                'id': group.id,
+                'object': c.userobj.id,
+                'object_type': 'user',
+                'capacity': 'member',
+            }
+            member_create_context = {
+                'user': site_user['name'],
+                'ignore_auth': True,
+            }
+
+            toolkit.get_action('member_create')(member_create_context, member_dict)
+
+    
+    def create_organization(self, org_name):
+        org = model.Group.get(org_name.lower())
+        context = {'ignore_auth': True}
+        site_user = toolkit.get_action('get_site_user')(context, {})
+        c = toolkit.c
+        log.info('site user: %s', site_user)
         if not org:
             context = {'user': site_user['name']}
-            data_dict = {
+            data_dict = {'name': org_name.lower(),
+                         'title': org_name
             }
             org = toolkit.get_action('organization_create')(context, data_dict)
-            org = model.Group.get(org_name)
+            org = model.Group.get(org_name.lower())
 
         # check if we are a member of the organization
         data_dict = {
@@ -182,7 +261,7 @@ class CasPlugin(plugins.SingletonPlugin):
                 'id': org.id,
                 'object': c.userobj.id,
                 'object_type': 'user',
-                'capacity': 'member',
+                'capacity': 'editor',
             }
             member_create_context = {
                 'user': site_user['name'],
@@ -190,6 +269,52 @@ class CasPlugin(plugins.SingletonPlugin):
             }
 
             toolkit.get_action('member_create')(member_create_context, member_dict)
+
+class CasController(base.BaseController):
+
+    def cas_unauthorized(self):
+        # This is our you are not authorized page
+        c = toolkit.c
+        c.code = 401
+        c.content = toolkit._('You are not authorized to do this')
+        return toolkit.render('error_document_template.html')
+
+#     def slo(self):
+#         environ = toolkit.request.environ
+#         # so here I might get either a LogoutResponse or a LogoutRequest
+#         client = environ['repoze.who.plugins']['casauth']
+#         if 'QUERY_STRING' in environ:
+#             saml_resp = toolkit.request.GET.get('SAMLResponse', '')
+#             saml_req = toolkit.request.GET.get('SAMLRequest', '')
+# 
+#             if saml_req:
+#                 log.info('SAML REQUEST for logout recieved')
+#                 get = toolkit.request.GET
+#                 subject_id = environ["repoze.who.identity"]['repoze.who.userid']
+#                 headers, success = client.saml_client.do_http_redirect_logout(get, subject_id)
+#                 h.redirect_to(headers[0][1])
+#             elif saml_resp:
+#              ##   # fix the cert so that it is on multiple lines
+#              ##   out = []
+#              ##   # if on multiple lines make it a single one
+#              ##   line = ''.join(saml_resp.split('\n'))
+#              ##   while len(line) > 64:
+#              ##       out.append(line[:64])
+#              ##       line = line[64:]
+#              ##   out.append(line)
+#              ##   saml_resp = '\n'.join(out)
+#              ##   try:
+#              ##       res = client.saml_client.logout_request_response(
+#              ##           saml_resp,
+#              ##           binding=BINDING_HTTP_REDIRECT
+#              ##       )
+#              ##   except KeyError:
+#              ##       # return error reply
+#              ##       pass
+# 
+#                 delete_cookies()
+#                 h.redirect_to(controller='user', action='logged_out')
+
 
 
 
