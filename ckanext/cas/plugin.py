@@ -143,18 +143,19 @@ class CasPlugin(plugins.SingletonPlugin):
             roles = [x.strip() for x in roles]
             log.info('roles: %s', roles)
             #handle MOD specific roles
+            role = toolkit.get_action('enum_roles')()
             if 'ROLE_POVINNA_OSOBA' in roles:
                 org_name = self.cas_identify['Actor.Organization'][1:-1]
                 self.create_organization(org_name)
             
             if 'ROLE_MODERATOR' in roles:
-                self.create_group('moderator')
+                self.create_group(role.ROLE_MODERATOR)
                 
             if 'ROLE_DATA_CURATOR' in roles:
-                self.create_group('data_curator')
+                self.create_group(role.ROLE_DATA_CURATOR)
                 
             if 'ROLE_APP_ADMIN' in roles:
-                self.create_group('app_admin')
+                self.create_group(role.ROLE_APP_ADMIN)
                 pass
         
     def login(self):
