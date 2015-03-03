@@ -89,6 +89,7 @@ class CasPlugin(plugins.SingletonPlugin):
     
     def configure(self, config):
         self.cas_url = config.get('ckanext.cas.url', None)
+        self.ckan_url = config.get('ckan.site_url', None)
         log.info('cas url: %s', self.cas_url)
     
     def identify(self):
@@ -102,20 +103,23 @@ class CasPlugin(plugins.SingletonPlugin):
         #    log.info("repoze.who.identity: '%s'" % user)
         
         if user:
-            if not self.cas_identify:          
-                identity = environ.get("repoze.who.identity", {})
-                log.info('identity: %s', identity.keys())
-                user_data = identity.get("attributes", {})
-                log.info('user data: %s', user_data)
-                if user_data:
-                    self.cas_identify = user_data
-
-            if not self.cas_identify:
+            #if not self.cas_identify:          
+            identity = environ.get("repoze.who.identity", {})
+            log.info('identity: %s', identity.keys())
+            user_data = identity.get("attributes", {})
+            user_id = identity.get("repoze.who.userid")
+            user_data2 = identity.get("userdata", {})
+            log.info('attributes: %s', user_data)
+            log.info('user id : %s', user_id)
+            log.info('user data : %s', user_data2)
+            if user_data:
+                self.cas_identify = user_data
+            if not (user_data or user_id):
                 log.info("redirect to logged_out")
                 delete_cookies()
                 h.redirect_to(controller='user', action='logged_out')
                         
-            c.user = self.cas_identify['Actor.Username'][1:-1]
+            c.user = user_id
             c.userobj = model.User.get(c.user)
             
             if c.userobj is None:
@@ -123,10 +127,10 @@ class CasPlugin(plugins.SingletonPlugin):
                 # Create the user
                 data_dict = {
                     'password': make_password(),
-                    'name' : self.cas_identify['Actor.Username'][1:-1],
-                    'email' : self.cas_identify['Actor.Email'][1:-1],
-                    'fullname' : self.cas_identify['Actor.FormattedName'][1:-1],
-                    'id' : self.cas_identify['Actor.UPVSIdentityID'][1:-1]
+                    'name' : user_data['first_name'],
+                    #'email' : self.cas_identify['Actor.Email'],
+                    'fullname' : user_data['first_name'] + ' ' + user_data['last_name'],
+                    'id' : user_id
                 }
                 #self.update_data_dict(data_dict, self.user_mapping, saml_info)
                 # Update the user schema to allow user creation
@@ -139,24 +143,26 @@ class CasPlugin(plugins.SingletonPlugin):
                 user = toolkit.get_action('user_create')(context, data_dict)
                 c.userobj = model.User.get(c.user)
                 
-            roles = self.cas_identify['Roles'][1:-1].split(',')
-            roles = [x.strip() for x in roles]
-            log.info('roles: %s', roles)
+            #roles = self.cas_identify['Roles'][1:-1].split(',')
+            #roles = [x.strip() for x in roles]
+            #log.info('roles: %s', roles)
             #handle MOD specific roles
-            role = toolkit.get_action('enum_roles')()
-            if 'ROLE_POVINNA_OSOBA' in roles:
-                org_name = self.cas_identify['Actor.Organization'][1:-1]
-                self.create_organization(org_name)
-            
-            if 'ROLE_MODERATOR' in roles:
-                self.create_group(role.ROLE_MODERATOR)
+            #roles = self.cas_identify['SPR.Roles']
+            if user_data:
+                role = toolkit.get_action('enum_roles')()
+                spr_role = user_data.get('SPR.Roles','')
+                if 'MOD-R-PO' == spr_role:
+                    org_name = user_data['SubjectID']
+                    self.create_organization(org_name)
                 
-            if 'ROLE_DATA_CURATOR' in roles:
-                self.create_group(role.ROLE_DATA_CURATOR)
-                
-            if 'ROLE_APP_ADMIN' in roles:
-                self.create_group(role.ROLE_APP_ADMIN)
-                pass
+                if 'MOD-R-MODER' == spr_role:
+                    self.create_group(role.ROLE_MODERATOR)
+                    
+                if 'MOD-R-DATA' == spr_role:
+                    self.create_group(role.ROLE_DATA_CURATOR)
+                    
+                if 'MOD-R-APP' == spr_role:
+                    self.create_group(role.ROLE_APP_ADMIN)
         
     def login(self):
         log.info('login')
@@ -174,12 +180,13 @@ class CasPlugin(plugins.SingletonPlugin):
             log.info('logout abort')
             environ = toolkit.request.environ
             log.info('environ: %s', environ)
+            self.cas_identify = None
             subject_id = environ["repoze.who.identity"]['repoze.who.userid']
             client_auth = environ['repoze.who.plugins']["auth_tkt"]
             log.info('auth tkt methods: %s', dir(client_auth))
             client_cas = environ['repoze.who.plugins']["casauth"]
             log.info('cas methods: %s', dir(client_cas))
-            environ['rwpc.logout']='http://192.168.21.27:5000/'
+            environ['rwpc.logout']= self.ckan_url
             #return base.abort(401)
             #log.info('logout')
             #environ = toolkit.request.environ
@@ -205,6 +212,7 @@ class CasPlugin(plugins.SingletonPlugin):
         c = toolkit.c
         log.info('site user: %s', site_user)
         if not group:
+            log.info('creating group: %s', group_name)      
             context = {'user': site_user['name']}
             data_dict = {'name': group_name.lower(),
                          'title': group_name
@@ -220,6 +228,7 @@ class CasPlugin(plugins.SingletonPlugin):
         members = toolkit.get_action('member_list')(context, data_dict)
         members = [member[0] for member in members]
         if c.userobj.id not in members:
+            log.info('adding member to group')
             # add membership
             member_dict = {
                 'id': group.id,
@@ -240,9 +249,10 @@ class CasPlugin(plugins.SingletonPlugin):
         context = {'ignore_auth': True}
         site_user = toolkit.get_action('get_site_user')(context, {})
         c = toolkit.c
-        log.info('site user: %s', site_user)
+        #log.info('site user: %s', site_user)
         if not org:
-            context = {'user': site_user['name']}
+            log.info('creating org: %s', org_name)      
+            context = {'user': c.userobj.id, 'ignore_auth': True}
             data_dict = {'name': org_name.lower(),
                          'title': org_name
             }
@@ -258,11 +268,12 @@ class CasPlugin(plugins.SingletonPlugin):
         members = [member[0] for member in members]
         if c.userobj.id not in members:
             # add membership
+            log.info('adding member to org')            
             member_dict = {
                 'id': org.id,
                 'object': c.userobj.id,
                 'object_type': 'user',
-                'capacity': 'editor',
+                'capacity': 'admin',
             }
             member_create_context = {
                 'user': site_user['name'],
