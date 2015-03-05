@@ -163,6 +163,9 @@ class CasPlugin(plugins.SingletonPlugin):
                     
                 if 'MOD-R-APP' == spr_role:
                     self.create_group(role.ROLE_APP_ADMIN)
+                
+                if 'MOD-R-TRANSA' == spr_role:
+                    self.create_group(role.ROLE_SPRAVCA_TRANSFORMACII)
         
     def login(self):
         log.info('login')
