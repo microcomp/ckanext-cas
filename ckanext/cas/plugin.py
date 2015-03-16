@@ -226,7 +226,7 @@ class CasPlugin(plugins.SingletonPlugin):
         # check if we are a member of the organization
         data_dict = {
             'id': group.id,
-            'type': 'user',
+            'object_type': 'user',
         }
         members = toolkit.get_action('member_list')(context, data_dict)
         members = [member[0] for member in members]
@@ -265,7 +265,7 @@ class CasPlugin(plugins.SingletonPlugin):
         # check if we are a member of the organization
         data_dict = {
             'id': org.id,
-            'type': 'user',
+            'object_type': 'user',
         }
         members = toolkit.get_action('member_list')(context, data_dict)
         members = [member[0] for member in members]
