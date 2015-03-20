@@ -256,7 +256,8 @@ class CasPlugin(plugins.SingletonPlugin):
         if not org:
             log.info('creating org: %s', org_name)      
             context = {'user': c.userobj.id, 'ignore_auth': True}
-            data_dict = {'name': org_name.lower(),
+            data_dict = {'id' : org_name.lower(),
+                         'name': org_name.lower(),
                          'title': org_name
             }
             org = toolkit.get_action('organization_create')(context, data_dict)
