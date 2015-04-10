@@ -97,21 +97,14 @@ class CasPlugin(plugins.SingletonPlugin):
         c = toolkit.c
         environ = toolkit.request.environ
         user = environ.get('REMOTE_USER', '')
-        log.info('user %s', user)
-        #if not user:
-        #    user = environ.get("repoze.who.identity", "")
-        #    log.info("repoze.who.identity: '%s'" % user)
-        
-        if user:
-            #if not self.cas_identify:          
+        log.info('environ user %s', user)
+        log.info('c.user: %s', c.user)
+        if user:         
             identity = environ.get("repoze.who.identity", {})
-            log.info('identity: %s', identity.keys())
             user_data = identity.get("attributes", {})
             user_id = identity.get("repoze.who.userid")
-            user_data2 = identity.get("userdata", {})
             log.info('attributes: %s', user_data)
-            log.info('user id : %s', user_id)
-            log.info('user data : %s', user_data2)
+            log.info('repoze.who user id : %s', user_id)
             if user_data:
                 self.cas_identify = user_data
             if not (user_data or user_id):
@@ -119,53 +112,59 @@ class CasPlugin(plugins.SingletonPlugin):
                 delete_cookies()
                 h.redirect_to(controller='user', action='logged_out')
                         
-            c.user = user_id
-            c.userobj = model.User.get(c.user)
+            c.userobj = model.User.get(user_id)
             
             if c.userobj is None:
                 log.info("creating new user")
                 # Create the user
                 data_dict = {
                     'password': make_password(),
-                    'name' : user_data['first_name'],
-                    #'email' : self.cas_identify['Actor.Email'],
-                    'fullname' : user_data['first_name'] + ' ' + user_data['last_name'],
-                    'id' : user_id
+                    'fullname' : user_data['Actor.FormattedName'][0],
+                    'id' : user_data['Actor.UPVSIdentityID'][0]
                 }
-                #self.update_data_dict(data_dict, self.user_mapping, saml_info)
+                if user_data.get('Actor.Username', []):
+                    data_dict['name'] = user_data['Actor.Username'][0]
+                else:
+                    data_dict['name'] = user_id
+                if user_data.get('Actor.Email', []):
+                    data_dict['email'] = user_data.get['Actor.Email'][0]
+                else:
+                    data_dict['email'] = 'test@mail.com'
+                log.info('data for creating user: %s', data_dict)
                 # Update the user schema to allow user creation
                 user_schema = schema.default_user_schema()
-                user_schema['id'] = [toolkit.get_validator('not_empty')]
-                user_schema['name'] = [toolkit.get_validator('not_empty')]
-                user_schema['email'] = [toolkit.get_validator('ignore_missing')]
+                user_schema['id'] = [toolkit.get_validator('not_empty'), unicode]
+                user_schema['name'] = [toolkit.get_validator('not_empty'), unicode]
+                user_schema['email'] = [toolkit.get_validator('ignore_missing'), unicode]
 
                 context = {'schema' : user_schema, 'ignore_auth': True}
                 user = toolkit.get_action('user_create')(context, data_dict)
-                c.userobj = model.User.get(c.user)
-                
-            #roles = self.cas_identify['Roles'][1:-1].split(',')
-            #roles = [x.strip() for x in roles]
-            #log.info('roles: %s', roles)
-            #handle MOD specific roles
-            #roles = self.cas_identify['SPR.Roles']
+                c.userobj = model.User.get(user_id)
+            #set c.user -> CKAN logic
+            c.user = c.userobj.name
+
             if user_data:
                 role = toolkit.get_action('enum_roles')()
-                spr_role = user_data.get('SPR.Roles','')
-                if 'MOD-R-PO' == spr_role:
-                    org_name = user_data['SubjectID']
-                    self.create_organization(org_name)
-                
-                if 'MOD-R-MODER' == spr_role:
-                    self.create_group(role.ROLE_MODERATOR)
+                spr_roles = user_data.get('SPR.Roles','')
+                log.info("SPR roles: %s", spr_roles)
+                for spr_role in spr_roles:
+                    if 'MOD-R-PO' == spr_role:
+                        org_id = user_data['Subject.UPVSIdentityID'][0]
+                        org_name = user_data['Subject.UPVSIdentityID'][0]
+                        org_title = user_data['Subject.FormattedName'][0]
+                        self.create_organization(org_id, org_name, org_title)
                     
-                if 'MOD-R-DATA' == spr_role:
-                    self.create_group(role.ROLE_DATA_CURATOR)
+                    if 'MOD-R-MODER' == spr_role:
+                        self.create_group(role.ROLE_MODERATOR)
+                        
+                    if 'MOD-R-DATA' == spr_role:
+                        self.create_group(role.ROLE_DATA_CURATOR)
+                        
+                    if 'MOD-R-APP' == spr_role:
+                        self.create_group(role.ROLE_APP_ADMIN)
                     
-                if 'MOD-R-APP' == spr_role:
-                    self.create_group(role.ROLE_APP_ADMIN)
-                
-                if 'MOD-R-TRANSA' == spr_role:
-                    self.create_group(role.ROLE_SPRAVCA_TRANSFORMACII)
+                    if 'MOD-R-TRANSA' == spr_role:
+                        self.create_group(role.ROLE_SPRAVCA_TRANSFORMACII)
         
     def login(self):
         log.info('login')
@@ -247,7 +246,7 @@ class CasPlugin(plugins.SingletonPlugin):
             toolkit.get_action('member_create')(member_create_context, member_dict)
 
     
-    def create_organization(self, org_name):
+    def create_organization(self, org_id, org_name, org_title):
         org = model.Group.get(org_name.lower())
         context = {'ignore_auth': True}
         site_user = toolkit.get_action('get_site_user')(context, {})
@@ -255,10 +254,10 @@ class CasPlugin(plugins.SingletonPlugin):
         #log.info('site user: %s', site_user)
         if not org:
             log.info('creating org: %s', org_name)      
-            context = {'user': c.userobj.id, 'ignore_auth': True}
-            data_dict = {'id' : org_name.lower(),
+            context = {'user': c.userobj.name, 'ignore_auth': True}
+            data_dict = {'id' : org_id,
                          'name': org_name.lower(),
-                         'title': org_name
+                         'title': org_title
             }
             org = toolkit.get_action('organization_create')(context, data_dict)
             org = model.Group.get(org_name.lower())
