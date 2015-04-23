@@ -128,8 +128,6 @@ class CasPlugin(plugins.SingletonPlugin):
                     data_dict['name'] = user_id
                 if user_data.get('Actor.Email', []):
                     data_dict['email'] = user_data.get['Actor.Email'][0]
-                else:
-                    data_dict['email'] = 'test@mail.com'
                 log.info('data for creating user: %s', data_dict)
                 # Update the user schema to allow user creation
                 user_schema = schema.default_user_schema()
