@@ -24,7 +24,8 @@ setup(
     ],
     entry_points='''
         [ckan.plugins]
-        # Add plugins here, e.g.
         cas=ckanext.cas.plugin:CasPlugin
+        [babel.extractors]
+        ckan = ckan.lib.extract:extract_ckan
     ''',
 )
