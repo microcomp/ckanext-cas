@@ -8,6 +8,9 @@ import ckan.lib.helpers as h
 import ckan.logic as logic
 import ckan.model as model
 import ckan.logic.schema as schema
+from ckan.common import request
+import logic as custom_logic
+
 log = logging.getLogger('ckanext.cas')
 
 def upvs_user_update(context, data_dict):
@@ -102,8 +105,11 @@ class CasPlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IAuthFunctions)
     plugins.implements(plugins.IRoutes, inherit = True)
     plugins.implements(plugins.ITemplateHelpers, inherit=False)
-    
-    cas_identify = None
+    plugins.implements(plugins.IActions)
+
+    def get_actions(self):
+        return {'user_create' : custom_logic.user_create,
+                'user_update' : custom_logic.user_update}
     
     def get_helpers(self):
         return {'retrieve_actor_name' : retrieve_actor_name}
@@ -277,7 +283,7 @@ class CasPlugin(plugins.SingletonPlugin):
     def abort(self, status_code, detail, headers, comment):
         log.info('abort')
         if (status_code == 401 and (toolkit.request.environ['PATH_INFO'] != '/user/login' or toolkit.request.environ['PATH_INFO'] != '/user/_logout')):
-                h.redirect_to('cas_unauthorized')
+                h.redirect_to('cas_unauthorized', message = detail)
         return (status_code, detail, headers, comment)
     
     def _is_member(self, group_id, user_id):
@@ -414,9 +420,14 @@ class CasController(base.BaseController):
 
     def cas_unauthorized(self):
         # This is our you are not authorized page
+        data = request.GET
+        detail = data.get('message', '')
         c = toolkit.c
         c.code = 401
-        c.content = toolkit._('You are not authorized to do this')
+        if detail:
+            c.content = detail
+        else:
+            c.content = toolkit._('You are not authorized to do this')
         return toolkit.render('error_document_template.html')
 
 #     def slo(self):
