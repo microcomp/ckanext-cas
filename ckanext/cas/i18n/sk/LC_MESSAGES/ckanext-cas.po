@@ -21,25 +21,25 @@ msgstr ""
 
 #: ckanext/cas/plugin.py:22
 msgid "User not found"
-msgstr ""
+msgstr "Používateľ nenájdený"
 
 #: ckanext/cas/plugin.py:28
 msgid "Permission denied!"
-msgstr ""
+msgstr "Oprávnenie zakázané"
 
 #: ckanext/cas/plugin.py:39
 msgid "Users cannot be created."
-msgstr ""
+msgstr "Používatelia nemôžu byť vytvorení"
 
 #: ckanext/cas/plugin.py:45
 msgid "Users cannot be edited."
-msgstr ""
+msgstr "Používatelia nemôžu byť editovaní"
 
 #: ckanext/cas/plugin.py:51 ckanext/cas/plugin.py:57
 msgid "Users cannot reset passwords."
-msgstr ""
+msgstr "Používatelia nemôžu resetovať heslá"
 
 #: ckanext/cas/plugin.py:560
 msgid "You are not authorized to do this"
-msgstr ""
+msgstr "Nemáte oprávnenie na toto"
 
