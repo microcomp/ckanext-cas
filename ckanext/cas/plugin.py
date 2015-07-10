@@ -108,8 +108,9 @@ class CasPlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IActions)
 
     def get_actions(self):
-        return {'user_create' : custom_logic.user_create,
-                'user_update' : custom_logic.user_update}
+        return {}
+        #return {'user_create' : custom_logic.user_create,
+        #        'user_update' : custom_logic.user_update}
     
     def get_helpers(self):
         return {'retrieve_actor_name' : retrieve_actor_name}
@@ -146,9 +147,8 @@ class CasPlugin(plugins.SingletonPlugin):
         keys['email'] =role + '.Email'
         keys['fullname'] = role + '.FormattedName'
         log.info('key dict: %s', keys)
-        userobj = model.User.get(keys['id'])
+        userobj = model.User.get(data_dict[keys['id']][0])
         user_create_dict = {}
-        user_create_dict['password'] = make_password()
         for key, value in keys.iteritems():
             attr_value = data_dict.get(value, ['',])[0]
             if attr_value:
@@ -160,10 +160,18 @@ class CasPlugin(plugins.SingletonPlugin):
         user_schema['id'] = [toolkit.get_validator('not_empty'), unicode]
         user_schema['name'] = [toolkit.get_validator('not_empty'), unicode]
         user_schema['email'] = [toolkit.get_validator('ignore_missing'), unicode]
-        context = {'schema' : user_schema, 'ignore_auth': True}
+        user_schema['password'] = [toolkit.get_validator('ignore_missing'), unicode]
+        context = {'schema' : user_schema,
+                   'ignore_auth': True,
+                   'model' : model,
+                   'session' : model.Session}
         if userobj:
-            toolkit.get_action('user_update')(context, user_create_dict)
+            if userobj.name != user_create_dict.get('name', '') or \
+               userobj.email != user_create_dict.get('email', '') or \
+               userobj.fullname != user_create_dict.get('fullname',''):
+                toolkit.get_action('user_update')(context, user_create_dict)
         else:
+            user_create_dict['password'] = make_password()
             toolkit.get_action('user_create')(context, user_create_dict)
         userobj = model.User.get(user_create_dict['id'])
         return userobj
@@ -198,9 +206,9 @@ class CasPlugin(plugins.SingletonPlugin):
                 if actor_id!=subject_id:
                     self._create_user(user_data, 'Subject')
                     log.info('jedna sa o zastupovanie subjectu %s actorom %s', subject_id, actor_id)
-                    pylons.session['ckanext-cas-actorid'] = user_id
+                    pylons.session['ckanext-cas-actorid'] = actor_id
                     pylons.session.save()
-                    identity["repoze.who.userid"] = subject_id
+                    #identity["repoze.who.userid"] = subject_id
                 c.userobj = model.User.get(subject_id)
                                     
             #set c.user -> CKAN logic

@@ -21,7 +21,8 @@ def default_user_schema(schema):
 
 def default_update_user_schema(schema):
     schema.update({
-        'name': [navl_validators.ignore_missing,
+        'name': [navl_validators.ignore_missing, 
+                 core_validators.name_validator,
                  core_validators.user_name_validator,
                  unicode],
         'password': [navl_validators.ignore_missing,
