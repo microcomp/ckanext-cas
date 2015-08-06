@@ -1,5 +1,7 @@
 import logging
 import uuid
+from xml.etree import ElementTree
+
 import pylons
 import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
@@ -10,8 +12,13 @@ import ckan.model as model
 import ckan.logic.schema as schema
 from ckan.common import request
 import logic as custom_logic
+from model.db import insert_entry, delete_entry, is_ticket_valid
+
 
 log = logging.getLogger('ckanext.cas')
+CAS_NAMESPACE = 'urn:oasis:names:tc:SAML:2.0:protocol'
+CAS_NAMESPACE_PREFIX = '{{{}}}'.format(CAS_NAMESPACE)
+XML_NAMESPACES = {'samlp': CAS_NAMESPACE}
 
 def upvs_user_update(context, data_dict):
     user = context['user']
@@ -76,9 +83,10 @@ def delete_cookies():
         plugins = toolkit.request.environ['repoze.who.plugins']
         cas_plugin = plugins.get('casauth')
         rememberer_name = cas_plugin.rememberer_name
-        log.info("rememberer_name: %s", rememberer_name)
     base.response.delete_cookie(rememberer_name)
     # We seem to end up with an extra cookie so kill this too
+    domain = toolkit.request.environ['HTTP_HOST']
+    base.response.delete_cookie(rememberer_name, domain='.' + domain)
     
 def retrieve_actor_name():
     environ = toolkit.request.environ
@@ -108,9 +116,7 @@ class CasPlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IActions)
 
     def get_actions(self):
-        return {}
-        #return {'user_create' : custom_logic.user_create,
-        #        'user_update' : custom_logic.user_update}
+        return {'user_provision' : custom_logic.user_provision}
     
     def get_helpers(self):
         return {'retrieve_actor_name' : retrieve_actor_name}
@@ -136,9 +142,7 @@ class CasPlugin(plugins.SingletonPlugin):
         }
     
     def configure(self, config):
-        self.cas_url = config.get('ckanext.cas.url', None)
         self.ckan_url = config.get('ckan.site_url', None)
-        log.info('cas url: %s', self.cas_url)
 
     def _create_user(self, data_dict, role):
         keys = {}
@@ -146,7 +150,6 @@ class CasPlugin(plugins.SingletonPlugin):
         keys['name'] = role + '.Username'
         keys['email'] =role + '.Email'
         keys['fullname'] = role + '.FormattedName'
-        log.info('key dict: %s', keys)
         userobj = model.User.get(data_dict[keys['id']][0])
         user_create_dict = {}
         for key, value in keys.iteritems():
@@ -155,7 +158,6 @@ class CasPlugin(plugins.SingletonPlugin):
                 user_create_dict[key] = attr_value
             elif value.endswith('Username'):
                 user_create_dict[key] = data_dict[keys['id']][0]
-        log.info('user create data: %s', user_create_dict)
         user_schema = schema.default_user_schema()
         user_schema['id'] = [toolkit.get_validator('not_empty'), unicode]
         user_schema['name'] = [toolkit.get_validator('not_empty'), unicode]
@@ -179,41 +181,54 @@ class CasPlugin(plugins.SingletonPlugin):
     def identify(self):
         log.info('identify')
         c = toolkit.c
-        log.info('pylons session type: %s', type(pylons.session))
-        log.info('pylons session content: %s', pylons.session)
         environ = toolkit.request.environ
-        log.info('environ keys: %s', environ.keys())
         user = environ.get('REMOTE_USER', '')
         log.info('environ user %s', user)
-        log.info('c.user: %s', c.user)
         if user:
             identity = environ.get("repoze.who.identity", {})
             user_data = identity.get("attributes", {})
+            ticket = identity.get("ticket", '')
             user_id = identity.get("repoze.who.userid")
-            log.info('attributes: %s', user_data)
-            log.info('repoze.who user id : %s', user_id)
             if not (user_data or user_id):
                 log.info("redirect to logged_out")
                 delete_cookies()
-                h.redirect_to(controller='user', action='logged_out')
+                return h.redirect_to(controller='user', action='logged_out')
             
             if not user_data:
-                c.userobj = model.User.get(user_id)
+                user_ticket = pylons.session.get('ckanext-cas-ticket', '')
+                if user_ticket:
+                    if is_ticket_valid(user_ticket):
+                        c.userobj = model.User.get(user_id)
+                    else:
+                        log.info("redirect to logged_out")
+                        environ['REMOTE_USER'] = None
+                        environ['repoze.who.identity'] = None
+                        delete_cookies()
+                        h.flash_error('You were logged out in another app')
+                        return #h.redirect_to(controller='home', action='index')
+                else:
+                    c.userobj = model.User.get(user_id)
             else:
                 subject_id = user_data['Subject.UPVSIdentityID'][0]
                 actor_id = user_data['Actor.UPVSIdentityID'][0]
+                success = insert_entry(ticket, subject_id, actor_id)
+                if not success:
+                    log.info("same ticket in DB - consistency error")
+                pylons.session['ckanext-cas-ticket'] = ticket
+                pylons.session.save()
                 self._create_user(user_data, 'Actor')
                 if actor_id!=subject_id:
                     self._create_user(user_data, 'Subject')
                     log.info('jedna sa o zastupovanie subjectu %s actorom %s', subject_id, actor_id)
                     pylons.session['ckanext-cas-actorid'] = actor_id
                     pylons.session.save()
-                    #identity["repoze.who.userid"] = subject_id
+                    identity["repoze.who.userid"] = subject_id
                 c.userobj = model.User.get(subject_id)
                                     
             #set c.user -> CKAN logic
             log.info('c.userobj: %s',c.userobj)
             c.user = c.userobj.name
+
 
             if user_data:
                 spr_roles = user_data.get('SPR.Roles','')
@@ -248,45 +263,49 @@ class CasPlugin(plugins.SingletonPlugin):
         
     def login(self):
         log.info('login')
-        if not toolkit.c.user:
-            # A 401 HTTP Status will cause the login to be triggered
-            log.info('login required')
-            return base.abort(401)
-            #return base.abort(401, toolkit._('Login is required!'))
-        log.info("redirect to dashboard")
-        h.redirect_to(controller='user', action='dashboard')
+        environ = toolkit.request.environ
+        if environ.get('REQUEST_METHOD', '') == 'POST':
+            data = toolkit.request.POST
+            message = data.get('message', None)
+            parsed = ElementTree.fromstring(message)
+            sessionIndex = parsed.find('samlp:SessionIndex', XML_NAMESPACES)
+            if sessionIndex is not None:
+                delete_entry(sessionIndex.text)
+        else:
+            if not toolkit.c.user:
+                # A 401 HTTP Status will cause the login to be triggered
+                log.info('login required')
+                return base.abort(401)
+                #return base.abort(401, toolkit._('Login is required!'))
+            log.info("redirect to dashboard")
+            h.redirect_to(controller='user', action='dashboard')
         
     def logout(self):
         log.info('logout')
+        environ = toolkit.request.environ
+        subject_id = environ["repoze.who.identity"]['repoze.who.userid']
         if toolkit.c.user:
-            #log.info('session content before delete: %s', pylons.session)
-            #delete_session_items()
-            #log.info('session content after delete: %s', pylons.session)
-            #domain = toolkit.request.environ['HTTP_HOST']
-            #log.info('domain: %s', domain)
-            #domain = 'data.int.edov.globaltel.sk'
-            #toolkit.response.delete_cookie('ckan')
-
-            log.info('logout abort')
+            #invalidate ticket to keepdb table up to date
+            user_ticket = pylons.session.get('ckanext-cas-ticket', '')
+            if user_ticket:
+                delete_entry(user_ticket)
+                log.info('ticket invalidated')
             environ = toolkit.request.environ
-            log.info('environ: %s', environ)
             subject_id = environ["repoze.who.identity"]['repoze.who.userid']
+            plugins = environ['repoze.who.plugins']
             client_auth = environ['repoze.who.plugins']["auth_tkt"]
-            log.info('auth tkt methods: %s', dir(client_auth))
+            headers_logout = client_auth.forget(environ, subject_id)
             client_cas = environ['repoze.who.plugins']["casauth"]
-            log.info('cas methods: %s', dir(client_cas))
-            environ['rwpc.logout']= self.ckan_url
-            #return base.abort(401)
-            #log.info('logout')
-            #environ = toolkit.request.environ
-            #log.info('environ: %s', environ)
-            ##subject_id = environ["repoze.who.identity"]['repoze.who.userid']
-            #client = environ['repoze.who.plugins']["casauth"]
-            #identity = environ['repoze.who.identity']
-            #client.forget(environ, identity)
-            
-            #delete_cookies()
-            #h.redirect_to(controller='user', action='logged_out')
+            client_cas.forget(environ, subject_id)
+            environ['rwpc.logout'] = self.ckan_url
+            delete_cookies()
+            toolkit.get_action('auditlog_send')(data_dict={'event_name' : 'user_logout',
+                                               'subject' : subject_id,
+                                               'authorized_user' : pylons.session.get('ckanext-cas-actorid') if pylons.session.get('ckanext-cas-actorid', '') else subject_id,
+                                               'description' : 'User loged out from CKAN using IP {0}'.format(environ.get('REMOTE_ADDR', '')),
+                                               'object_reference' : 'UserID://' + subject_id,
+                                               'debug_level' : 2,
+                                               'error_code' : 0})
         
     def abort(self, status_code, detail, headers, comment):
         log.info('abort')
@@ -334,7 +353,6 @@ class CasPlugin(plugins.SingletonPlugin):
         context = {'ignore_auth': True}
         site_user = toolkit.get_action('get_site_user')(context, {})
         c = toolkit.c
-        log.info('site user: %s', site_user)
         if not group:
             log.info('creating group: %s', group_name)      
             context = {'user': site_user['name']}
@@ -350,9 +368,7 @@ class CasPlugin(plugins.SingletonPlugin):
         context = {'ignore_auth': True}
         site_user = toolkit.get_action('get_site_user')(context, {})
         c = toolkit.c
-        log.info('site user: %s', site_user)
-        if not group:
-            log.info('creating group: %s', group_name)      
+        if not group:   
             context = {'user': site_user['name']}
             data_dict = {'name': group_name.lower(),
                          'title': group_name
@@ -389,7 +405,6 @@ class CasPlugin(plugins.SingletonPlugin):
         context = {'ignore_auth': True}
         site_user = toolkit.get_action('get_site_user')(context, {})
         c = toolkit.c
-        #log.info('site user: %s', site_user)
         if not org:
             log.info('creating org: %s', org_name)      
             context = {'user': c.userobj.name, 'ignore_auth': True}
@@ -420,10 +435,8 @@ class CasPlugin(plugins.SingletonPlugin):
                 'user': site_user['name'],
                 'ignore_auth': True,
             }
-            log.info('data for creating member in org %s: %s', org_title, member_dict)
             res = toolkit.get_action('member_create')(member_create_context, member_dict)
-            log.info('result of member_create: %s', res)
-            
+          
 class CasController(base.BaseController):
 
     def cas_unauthorized(self):
@@ -437,43 +450,3 @@ class CasController(base.BaseController):
         else:
             c.content = toolkit._('You are not authorized to do this')
         return toolkit.render('error_document_template.html')
-
-#     def slo(self):
-#         environ = toolkit.request.environ
-#         # so here I might get either a LogoutResponse or a LogoutRequest
-#         client = environ['repoze.who.plugins']['casauth']
-#         if 'QUERY_STRING' in environ:
-#             saml_resp = toolkit.request.GET.get('SAMLResponse', '')
-#             saml_req = toolkit.request.GET.get('SAMLRequest', '')
-# 
-#             if saml_req:
-#                 log.info('SAML REQUEST for logout recieved')
-#                 get = toolkit.request.GET
-#                 subject_id = environ["repoze.who.identity"]['repoze.who.userid']
-#                 headers, success = client.saml_client.do_http_redirect_logout(get, subject_id)
-#                 h.redirect_to(headers[0][1])
-#             elif saml_resp:
-#              ##   # fix the cert so that it is on multiple lines
-#              ##   out = []
-#              ##   # if on multiple lines make it a single one
-#              ##   line = ''.join(saml_resp.split('\n'))
-#              ##   while len(line) > 64:
-#              ##       out.append(line[:64])
-#              ##       line = line[64:]
-#              ##   out.append(line)
-#              ##   saml_resp = '\n'.join(out)
-#              ##   try:
-#              ##       res = client.saml_client.logout_request_response(
-#              ##           saml_resp,
-#              ##           binding=BINDING_HTTP_REDIRECT
-#              ##       )
-#              ##   except KeyError:
-#              ##       # return error reply
-#              ##       pass
-# 
-#                 delete_cookies()
-#                 h.redirect_to(controller='user', action='logged_out')
-
-
-
-
