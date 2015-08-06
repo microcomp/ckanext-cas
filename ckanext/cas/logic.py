@@ -1,6 +1,12 @@
 import schema
 import ckan.logic as logic
+import logging
+log = logging.getLogger(__name__)
 
+@logic.side_effect_free
+def user_provision(context, data_dict):
+    log.info('received data: %s', data_dict)
+    return False
 
 def user_create(context, data_dict):
     '''Create a new user.
