@@ -204,7 +204,7 @@ class CasPlugin(plugins.SingletonPlugin):
                         environ['REMOTE_USER'] = None
                         environ['repoze.who.identity'] = None
                         delete_cookies()
-                        h.flash_error('You were logged out in another app')
+                        h.flash_notice(toolkit._('You were logged out in another app'))
                         return #h.redirect_to(controller='home', action='index')
                 else:
                     c.userobj = model.User.get(user_id)
@@ -266,7 +266,7 @@ class CasPlugin(plugins.SingletonPlugin):
         environ = toolkit.request.environ
         if environ.get('REQUEST_METHOD', '') == 'POST':
             data = toolkit.request.POST
-            message = data.get('message', None)
+            message = data.get('logoutRequest', None)
             parsed = ElementTree.fromstring(message)
             sessionIndex = parsed.find('samlp:SessionIndex', XML_NAMESPACES)
             if sessionIndex is not None:
