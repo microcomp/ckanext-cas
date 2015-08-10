@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ckanext-cas 0.1\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-05-14 13:23+0100\n"
+"POT-Creation-Date: 2015-08-10 09:41+0200\n"
 "PO-Revision-Date: 2015-05-14 13:24+0100\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: sk <LL@li.org>\n"
@@ -19,27 +19,31 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 0.9.6\n"
 
-#: ckanext/cas/plugin.py:22
+#: ckanext/cas/plugin.py:32
 msgid "User not found"
 msgstr "Používateľ nenájdený"
 
-#: ckanext/cas/plugin.py:28
+#: ckanext/cas/plugin.py:38
 msgid "Permission denied!"
 msgstr "Oprávnenie zakázané"
 
-#: ckanext/cas/plugin.py:39
+#: ckanext/cas/plugin.py:49
 msgid "Users cannot be created."
 msgstr "Používatelia nemôžu byť vytvorení"
 
-#: ckanext/cas/plugin.py:45
+#: ckanext/cas/plugin.py:55
 msgid "Users cannot be edited."
 msgstr "Používatelia nemôžu byť editovaní"
 
-#: ckanext/cas/plugin.py:51 ckanext/cas/plugin.py:57
+#: ckanext/cas/plugin.py:61 ckanext/cas/plugin.py:67
 msgid "Users cannot reset passwords."
 msgstr "Používatelia nemôžu resetovať heslá"
 
-#: ckanext/cas/plugin.py:560
+#: ckanext/cas/plugin.py:207
+msgid "You were logged out in another app"
+msgstr "Boli ste odhlásený zo systému v inom okne."
+
+#: ckanext/cas/plugin.py:451
 msgid "You are not authorized to do this"
 msgstr "Nemáte oprávnenie na toto"
 
