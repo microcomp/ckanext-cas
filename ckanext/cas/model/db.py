@@ -1,5 +1,4 @@
 import datetime
-import uuid
 import logging
 
 from ckan.model import domain_object
@@ -8,9 +7,6 @@ from sqlalchemy import types, Column, Table, ForeignKey, func, CheckConstraint, 
 import sqlalchemy.exc
 
 log = logging.getLogger(__name__)
-
-def make_uuid():
-    return unicode(uuid.uuid4())
 
 class LogedInUser(domain_object.DomainObject):
     def __init__(self, ticket_id, subject_id, actor_id):
@@ -48,7 +44,7 @@ user_login_table = Table('ckanext_cas_login', metadata,
         Column('ticket_id', types.UnicodeText, primary_key=True, nullable=False),
         Column('subject_id', types.UnicodeText, default=u'', nullable=False),
         Column('actor_id', types.UnicodeText, default=u'', nullable=False),
-        Column('timestamp', types.DateTime, default=datetime.datetime.utcnow(), nullable=False),
+        Column('timestamp', types.DateTime, default=datetime.datetime.utcnow, nullable=False),
         #UniqueConstraint('subject_id', 'actor_id', name='idx_subject_actor')
     )
 
