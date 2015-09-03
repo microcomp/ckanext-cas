@@ -37,18 +37,14 @@ def upvs_user_update(context, data_dict):
     return {'success': False,
                 'msg': toolkit._('Permission denied!')}
 
-
-
 def _no_permissions(context, msg):
     user = context['user']
     return {'success': False, 'msg': msg.format(user=user)}
-
 
 @logic.auth_sysadmins_check
 def user_create(context, data_dict):
     msg = toolkit._('Users cannot be created.')
     return _no_permissions(context, msg)
-
 
 @logic.auth_sysadmins_check
 def user_update(context, data_dict):
@@ -138,7 +134,8 @@ class CasPlugin(plugins.SingletonPlugin):
             'user_update': user_update,
             'user_reset': user_reset,
             'request_reset': request_reset,
-            'upvs_user_update': upvs_user_update
+            'upvs_user_update': upvs_user_update,
+            'user_provision' : custom_logic.auth_user_provision
         }
     
     def configure(self, config):
@@ -312,93 +309,6 @@ class CasPlugin(plugins.SingletonPlugin):
         if (status_code == 401 and (toolkit.request.environ['PATH_INFO'] != '/user/login' or toolkit.request.environ['PATH_INFO'] != '/user/_logout')):
                 h.redirect_to('cas_unauthorized', message = detail)
         return (status_code, detail, headers, comment)
-    
-    def _is_member(self, group_id, user_id):
-        context = {'ignore_auth': True}
-        data_dict = {
-            'id': group_id,
-            'object_type': 'user',
-        }
-        members = toolkit.get_action('member_list')(context, data_dict)
-        members = [member[0] for member in members]
-        if user_id in members:
-            return True
-        return False
-        
-    def _remove_member(self, group_id, member_id):
-        c = toolkit.c
-        context = {'ignore_auth': True}
-        data_dict = {'id' : group_id,
-                     'object' : member_id,
-                     'object_type' : 'user'}
-        toolkit.get_action('member_delete')(context, data_dict)
-        
-    def _add_member(self, group_id, user_id):
-        context = {'ignore_auth': True}
-        site_user = toolkit.get_action('get_site_user')(context, {})
-        member_dict = {
-            'id': group_id,
-            'object': user_id,
-            'object_type': 'user',
-            'capacity': 'member',
-        }
-        member_create_context = {
-            'user': site_user['name'],
-            'ignore_auth': True,
-        }
-        toolkit.get_action('member_create')(member_create_context, member_dict)
-
-    def _create_group_help(self, group_name):
-        group = model.Group.get(group_name.lower())
-        context = {'ignore_auth': True}
-        site_user = toolkit.get_action('get_site_user')(context, {})
-        c = toolkit.c
-        if not group:
-            log.info('creating group: %s', group_name)      
-            context = {'user': site_user['name']}
-            data_dict = {'name': group_name.lower(),
-                         'title': group_name
-            }
-            group = toolkit.get_action('group_create')(context, data_dict)
-            group = model.Group.get(group_name.lower())
-        return group
-
-    def create_group(self, group_name):
-        group = model.Group.get(group_name.lower())
-        context = {'ignore_auth': True}
-        site_user = toolkit.get_action('get_site_user')(context, {})
-        c = toolkit.c
-        if not group:   
-            context = {'user': site_user['name']}
-            data_dict = {'name': group_name.lower(),
-                         'title': group_name
-            }
-            group = toolkit.get_action('group_create')(context, data_dict)
-            group = model.Group.get(group_name.lower())
-
-        # check if we are a member of the organization
-        data_dict = {
-            'id': group.id,
-            'object_type': 'user',
-        }
-        members = toolkit.get_action('member_list')(context, data_dict)
-        members = [member[0] for member in members]
-        if c.userobj.id not in members:
-            log.info('adding member to group')
-            # add membership
-            member_dict = {
-                'id': group.id,
-                'object': c.userobj.id,
-                'object_type': 'user',
-                'capacity': 'member',
-            }
-            member_create_context = {
-                'user': site_user['name'],
-                'ignore_auth': True,
-            }
-
-            toolkit.get_action('member_create')(member_create_context, member_dict)
-
     
     def create_organization(self, org_id, org_name, org_title):
         org = model.Group.get(org_name.lower())
