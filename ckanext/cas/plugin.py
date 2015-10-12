@@ -14,7 +14,6 @@ from ckan.common import request
 import logic as custom_logic
 from model.db import insert_entry, delete_entry, is_ticket_valid
 
-
 log = logging.getLogger('ckanext.cas')
 CAS_NAMESPACE = 'urn:oasis:names:tc:SAML:2.0:protocol'
 CAS_NAMESPACE_PREFIX = '{{{}}}'.format(CAS_NAMESPACE)

@@ -30,8 +30,6 @@ def auth_user_provision(context, data_dict):
             'msg': toolkit._('Authorization failed! Provided secret token is invalid.')}
 
 def user_provision(context, data_dict):
-    log.info('received data on user provisiong endpoint')
-    log.info(toolkit.request.environ)
     _check_access('user_provision', context, data_dict)
     actor = _create_user(data_dict, 'Actor')
     log.info('actor processed')
@@ -66,7 +64,7 @@ def _create_user(data_dict, role):
     userobj = model.User.get(data_dict[keys['id']])
     user_create_dict = {}
     for key, value in keys.iteritems():
-        attr_value = data_dict.get(value, ['',])
+        attr_value = data_dict.get(value, '')
         if attr_value:
             user_create_dict[key] = attr_value
         elif value.endswith('Username'):
@@ -84,6 +82,8 @@ def _create_user(data_dict, role):
         if userobj.name != user_create_dict.get('name', '') or \
            userobj.email != user_create_dict.get('email', '') or \
            userobj.fullname != user_create_dict.get('fullname',''):
+            if data_dict.get(keys['name'], ''):
+                del user_create_dict['name']
             toolkit.get_action('user_update')(context, user_create_dict)
     else:
         user_create_dict['password'] = make_password()
