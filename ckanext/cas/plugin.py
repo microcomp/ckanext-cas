@@ -167,6 +167,9 @@ class CasPlugin(plugins.SingletonPlugin):
             if userobj.name != user_create_dict.get('name', '') or \
                userobj.email != user_create_dict.get('email', '') or \
                userobj.fullname != user_create_dict.get('fullname',''):
+                if data_dict.get(keys['name'], ''):
+                    del user_create_dict['name']
+                user_schema['name'] = [toolkit.get_validator('ignore_missing'), unicode]
                 toolkit.get_action('user_update')(context, user_create_dict)
         else:
             user_create_dict['password'] = make_password()
