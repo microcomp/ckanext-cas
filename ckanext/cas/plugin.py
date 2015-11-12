@@ -9,6 +9,7 @@ import ckan.lib.base as base
 import ckan.lib.helpers as h
 import ckan.logic as logic
 import ckan.model as model
+import ckan.lib.i18n as i18n
 import ckan.logic.schema as schema
 from ckan.common import request
 import logic as custom_logic
@@ -119,7 +120,7 @@ class CasPlugin(plugins.SingletonPlugin):
     def before_map(self, map):
         map.connect(
             'cas_unauthorized',
-            '/cas_unauthorized',
+            '/access_unauthorized',
             controller='ckanext.cas.plugin:CasController',
             action='cas_unauthorized'
         )
@@ -163,10 +164,16 @@ class CasPlugin(plugins.SingletonPlugin):
                    'ignore_auth': True,
                    'model' : model,
                    'session' : model.Session}
+        log.info('actual user: %s' , userobj)
+        log.info('new user: %s', user_create_dict)
         if userobj:
-            if userobj.name != user_create_dict.get('name', '') or \
-               userobj.email != user_create_dict.get('email', '') or \
-               userobj.fullname != user_create_dict.get('fullname',''):
+            same_name = userobj.name == user_create_dict.get('name', None)
+            same_email = userobj.email == user_create_dict.get('email', None)
+            same_fullname = userobj.fullname == user_create_dict.get('fullname', None)
+            log.info('compare result: %s, %s, %s', same_name, same_email, same_fullname)
+            if unicode(userobj.name) != unicode(user_create_dict.get('name', None)) or \
+               userobj.email != user_create_dict.get('email', None) or \
+               unicode(userobj.fullname) != unicode(user_create_dict.get('fullname',None)):
                 if data_dict.get(keys['name'], ''):
                     del user_create_dict['name']
                 user_schema['name'] = [toolkit.get_validator('ignore_missing'), unicode]
@@ -179,6 +186,8 @@ class CasPlugin(plugins.SingletonPlugin):
       
     def identify(self):
         log.info('identify')
+        #set language as default to be able to translate flash messages
+        i18n.set_lang('sk')
         c = toolkit.c
         environ = toolkit.request.environ
         user = environ.get('REMOTE_USER', '')
@@ -218,14 +227,24 @@ class CasPlugin(plugins.SingletonPlugin):
                 self._create_user(user_data, 'Actor')
                 if actor_id!=subject_id:
                     self._create_user(user_data, 'Subject')
-                    log.info('jedna sa o zastupovanie subjectu %s actorom %s', subject_id, actor_id)
-                    pylons.session['ckanext-cas-actorid'] = actor_id
-                    pylons.session.save()
-                    identity["repoze.who.userid"] = subject_id
-                c.userobj = model.User.get(subject_id)
+                    log.debug('jedna sa o zastupovanie subjectu %s actorom %s', subject_id, actor_id)
+                    spr_roles = user_data.get('SPR.Roles','')
+                    if self._subject_is_org(subject_id) and not 'MOD-R-PO' in spr_roles:
+                        identity["repoze.who.userid"] = actor_id
+                        pylons.session['ckanext-cas-actorid'] = subject_id
+                        pylons.session.save()
+                        c.userobj = model.User.get(actor_id)
+                        h.flash_notice(toolkit._('You are not allowed to act as {0} in data.gov.sk').format(user_data['Subject.FormattedName'][0]))
+                    else:
+                        identity["repoze.who.userid"] = subject_id
+                        pylons.session['ckanext-cas-actorid'] = actor_id
+                        pylons.session.save()
+                        c.userobj = model.User.get(subject_id)
+                else:
+                    c.userobj = model.User.get(subject_id)
                                     
             #set c.user -> CKAN logic
-            log.info('c.userobj: %s',c.userobj)
+            log.debug('c.userobj: %s',c.userobj)
             c.user = c.userobj.name
 
 
@@ -233,7 +252,7 @@ class CasPlugin(plugins.SingletonPlugin):
                 spr_roles = user_data.get('SPR.Roles','')
                 subject_id = user_data['Subject.UPVSIdentityID'][0]
                 actor_id = user_data['Actor.UPVSIdentityID'][0]
-                log.info("SPR roles: %s", spr_roles)
+                log.debug("SPR roles: %s", spr_roles)
                 pylons.session['ckanext-cas-roles'] = spr_roles
                 pylons.session.save()
                 if 'MOD-R-PO' in spr_roles:
@@ -312,6 +331,13 @@ class CasPlugin(plugins.SingletonPlugin):
                 h.redirect_to('cas_unauthorized', message = detail)
         return (status_code, detail, headers, comment)
     
+    def _subject_is_org(self, subject):
+        org = model.Group.get(subject) or model.Group.get(subject.lower())
+        if org:
+            return True
+        return False
+        
+        
     def create_organization(self, org_id, org_name, org_title):
         org = model.Group.get(org_name.lower())
         context = {'ignore_auth': True}
