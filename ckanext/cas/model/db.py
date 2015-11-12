@@ -56,11 +56,16 @@ def create_user_login_table():
 
 def insert_entry(ticket_id, subject_id, actor_id=None):
     create_user_login_table()
+    actor_id = actor_id or subject_id
+    search = {'ticket_id' : ticket_id}
+    result = LogedInUser.get(**search)
+    if result:
+        result[0].subject_id = subject_id
+        result[0].actor_id = actor_id
+        result[0].save()
+        return True
     try:
-        if actor_id==None:
-            new_login = LogedInUser(ticket_id, subject_id, subject_id)
-        else:
-            new_login = LogedInUser(ticket_id, subject_id, actor_id)
+        new_login = LogedInUser(ticket_id, subject_id, actor_id)
         new_login.save()
         return True
     except sqlalchemy.exc.IntegrityError, exc:
