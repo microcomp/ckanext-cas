@@ -326,8 +326,8 @@ class CasPlugin(plugins.SingletonPlugin):
         
     def abort(self, status_code, detail, headers, comment):
         log.info('abort')
-        #if (status_code == 401 and (toolkit.request.environ['PATH_INFO'] != '/user/login' or toolkit.request.environ['PATH_INFO'] != '/user/_logout')):
-        #        h.redirect_to('cas_unauthorized', message = detail)
+        if (status_code == 401 and (toolkit.request.environ['PATH_INFO'] != '/user/login' or toolkit.request.environ['PATH_INFO'] != '/user/_logout')):
+            h.redirect_to('cas_unauthorized', message = detail)
         return (status_code, detail, headers, comment)
     
     def _subject_is_org(self, subject):
