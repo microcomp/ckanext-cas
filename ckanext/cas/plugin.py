@@ -187,7 +187,9 @@ class CasPlugin(plugins.SingletonPlugin):
     def identify(self):
         log.info('identify')
         #set language as default to be able to translate flash messages
-        i18n.set_lang('sk')
+        lang = request.environ.get('CKAN_LANG')
+        if lang and lang=='sk':
+            i18n.set_lang('sk')
         c = toolkit.c
         environ = toolkit.request.environ
         user = environ.get('REMOTE_USER', '')
