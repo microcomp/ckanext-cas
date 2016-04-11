@@ -11,7 +11,7 @@ import ckan.logic as logic
 import ckan.model as model
 import ckan.lib.i18n as i18n
 import ckan.logic.schema as schema
-from ckan.common import request
+from ckan.common import request, response
 import logic as custom_logic
 from model.db import insert_entry, delete_entry, is_ticket_valid
 
@@ -187,7 +187,9 @@ class CasPlugin(plugins.SingletonPlugin):
     def identify(self):
         log.info('identify')
         #set language as default to be able to translate flash messages
-        i18n.set_lang('sk')
+        lang = request.environ.get('CKAN_LANG')
+        if lang and lang=='sk':
+            i18n.set_lang('sk')
         c = toolkit.c
         environ = toolkit.request.environ
         user = environ.get('REMOTE_USER', '')
@@ -301,7 +303,6 @@ class CasPlugin(plugins.SingletonPlugin):
     def logout(self):
         log.info('logout')
         environ = toolkit.request.environ
-        subject_id = environ["repoze.who.identity"]['repoze.who.userid']
         if toolkit.c.user:
             #invalidate ticket to keepdb table up to date
             user_ticket = pylons.session.get('ckanext-cas-ticket', '')
@@ -328,7 +329,7 @@ class CasPlugin(plugins.SingletonPlugin):
     def abort(self, status_code, detail, headers, comment):
         log.info('abort')
         if (status_code == 401 and (toolkit.request.environ['PATH_INFO'] != '/user/login' or toolkit.request.environ['PATH_INFO'] != '/user/_logout')):
-                h.redirect_to('cas_unauthorized', message = detail)
+            h.redirect_to('cas_unauthorized', message = detail)
         return (status_code, detail, headers, comment)
     
     def _subject_is_org(self, subject):
@@ -382,7 +383,8 @@ class CasController(base.BaseController):
         data = request.GET
         detail = data.get('message', '')
         c = toolkit.c
-        c.code = 401
+        c.code = [403]
+        response.status_int = 403
         if detail:
             c.content = detail
         else:
