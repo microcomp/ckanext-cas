@@ -80,9 +80,9 @@ def _create_user(data_dict, role):
                'session' : model.Session}
     
     if userobj:
-        if (user_create_dict.get('name', '') != '' && userobj.name != user_create_dict.get('name', '')) or \
-           (user_create_dict.get('email', '') != '' && userobj.email != user_create_dict.get('email', '')) or \
-           (user_create_dict.get('fullname','') != '' && userobj.fullname != user_create_dict.get('fullname','')):
+        if (user_create_dict.get('name', '') != '' and userobj.name != user_create_dict.get('name', '')) or \
+           (user_create_dict.get('email', '') != '' and userobj.email != user_create_dict.get('email', '')) or \
+           (user_create_dict.get('fullname','') != '' and userobj.fullname != user_create_dict.get('fullname','')):
             if data_dict.get(keys['name'], ''):
                 del user_create_dict['name']
             user_schema['name'] = [toolkit.get_validator('ignore_missing'), unicode]            
