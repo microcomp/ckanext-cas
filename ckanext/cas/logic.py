@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 _check_access = logic.check_access
 
 @logic.auth_allow_anonymous_access
-def auth_user_provision(context, data_dict):
+def auth_user_provision(context, data_dict):    
     environ = toolkit.request.environ
     secret_token_provided = environ.get('HTTP_AUTHORIZATION', None)
     if secret_token_provided:
@@ -78,13 +78,14 @@ def _create_user(data_dict, role):
                'ignore_auth': True,
                'model' : model,
                'session' : model.Session}
+    
     if userobj:
-        if userobj.name != user_create_dict.get('name', None) or \
-           userobj.email != user_create_dict.get('email', None) or \
-           userobj.fullname != user_create_dict.get('fullname',None):
-            if data_dict.get(keys['name'], None):
+        if (user_create_dict.get('name', '') != '' && userobj.name != user_create_dict.get('name', '')) or \
+           (user_create_dict.get('email', '') != '' && userobj.email != user_create_dict.get('email', '')) or \
+           (user_create_dict.get('fullname','') != '' && userobj.fullname != user_create_dict.get('fullname','')):
+            if data_dict.get(keys['name'], ''):
                 del user_create_dict['name']
-            user_schema['name'] = [toolkit.get_validator('ignore_missing'), unicode]
+            user_schema['name'] = [toolkit.get_validator('ignore_missing'), unicode]            
             toolkit.get_action('user_update')(context, user_create_dict)
     else:
         user_create_dict['password'] = make_password()
